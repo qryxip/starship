@@ -124,27 +124,45 @@ fn extract_toolchain_from_rustup_override_list(stdout: &str, cwd: &Path) -> Opti
 }
 
 fn find_rust_toolchain_file(context: &Context) -> Option<String> {
-    // Look for 'rust-toolchain' as rustup does.
-    // https://github.com/rust-lang/rustup.rs/blob/d84e6e50126bccd84649e42482fc35a11d019401/src/config.rs#L320-L358
+    // Look for 'rust-toolchain' and read it as rustup does.
+    // https://github.com/rust-lang/rustup/blob/master/src/config.rs#L546-L616
 
-    fn read_first_line(path: &Path) -> Option<String> {
-        let content = fs::read_to_string(path).ok()?;
-        let line = content.lines().next()?;
-        Some(line.trim().to_owned())
+    fn read_override_file(path: &Path) -> Option<String> {
+        let contents = fs::read_to_string(path).ok()?;
+
+        if contents.is_empty() {
+            return None;
+        }
+
+        let channel = if contents.lines().count() == 1 {
+            contents.trim().to_owned()
+        } else {
+            toml::from_str::<toml::value::Table>(&contents)
+                .ok()?
+                .get("toolchain")?
+                .get("channel")?
+                .as_str()?
+                .to_owned()
+        };
+
+        if channel.is_empty() {
+            return None;
+        }
+        Some(channel)
     }
 
     if let Ok(true) = context
         .dir_contents()
         .map(|dir| dir.has_file("rust-toolchain"))
     {
-        if let Some(toolchain) = read_first_line(Path::new("rust-toolchain")) {
+        if let Some(toolchain) = read_override_file(Path::new("rust-toolchain")) {
             return Some(toolchain);
         }
     }
 
     let mut dir = &*context.current_dir;
     loop {
-        if let Some(toolchain) = read_first_line(&dir.join("rust-toolchain")) {
+        if let Some(toolchain) = read_override_file(&dir.join("rust-toolchain")) {
             return Some(toolchain);
         }
         dir = dir.parent()?;
